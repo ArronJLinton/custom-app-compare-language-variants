@@ -1,0 +1,4 @@
+/*
+  Content-Security-Policy: frame-ancestors https://app.kontent.ai;
+  X-Content-Type-Options: nosniff
+  Referrer-Policy: no-referrer
