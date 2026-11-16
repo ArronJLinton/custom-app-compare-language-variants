@@ -35,16 +35,18 @@ Confirmed from [`@kontent-ai/custom-app-sdk` README](https://github.com/kontent-
 - The Management API key is **not user-scoped**. Gate who can open the custom app with **Kontent roles** on the custom app registration.
 - Optional `allowedLanguages` in `appConfig` filters the compare picker; it is not an authorization boundary.
 
+## Repository
+
+https://github.com/ArronJLinton/custom-app-compare-language-variants
+
 ## Environment variables
 
-Set these in Netlify (Site settings → Environment variables) or a local `.env` for `netlify dev`:
+Copy `.env.example` → `.env` and set:
 
 | Variable | Required | Description |
 |----------|----------|-------------|
-| `KONTENT_MANAGEMENT_API_KEY` | Yes | Management API key (Bearer) |
+| `KONTENT_MANAGEMENT_API_KEY` | Yes | Management API key (Bearer) — **server/local `.env` only** |
 | `KONTENT_ENVIRONMENT_ID` | No | If set, the proxy rejects requests for any other environment id |
-
-Copy `.env.example` → `.env` for local development.
 
 Optional frontend override:
 
@@ -52,55 +54,57 @@ Optional frontend override:
 |----------|-------------|
 | `VITE_KONTENT_PROXY_URL` | Absolute or relative proxy URL (default `/api/kontent`) |
 
-## Local development
+## Primary path: local HTTPS + ngrok
+
+Kontent custom apps need a public **HTTPS** URL for the hosted code. For demos, run locally and tunnel with ngrok (Netlify deploy is optional / later).
+
+### 1. Install and configure
 
 ```bash
 pnpm i
-cp .env.example .env   # add KONTENT_MANAGEMENT_API_KEY
-pnpm netlify:dev       # preferred: Vite HTTPS + functions on one origin
+cp .env.example .env
+# edit .env → set KONTENT_MANAGEMENT_API_KEY
 ```
 
-`netlify dev` serves the app and `/.netlify/functions/kontent` (also rewritten as `/api/kontent`).
+### 2. Run the app + Management API proxy
 
-### Local tunnel (ngrok)
-
-Kontent custom apps require a public **HTTPS** URL.
+Prefer one process so the UI and `/.netlify/functions/kontent` (rewritten as `/api/kontent`) share an origin:
 
 ```bash
-# terminal 1
 pnpm netlify:dev
-
-# terminal 2
-ngrok http 8888   # use the port netlify dev prints
 ```
 
-Register the ngrok HTTPS URL in Kontent (see below). Renew the URL when the tunnel restarts.
+Note the local port Netlify prints (commonly `8888`).  
+`netlify.toml` already points the function at `netlify/functions` and rewrites `/api/kontent`.
 
-You can also run `pnpm dev` (Vite HTTPS on port 5173) with a separate `netlify functions:serve`, but `netlify dev` is simpler.
+Alternative: `pnpm dev` (Vite HTTPS, often `:5173`) plus a separate `netlify functions:serve` — more moving parts; use only if you need it.
 
-## Deploy to Netlify
+### 3. Tunnel with ngrok
 
-1. Create a Netlify site from this repository (or `netlify init` / drag-drop `dist` after configuring functions).
-2. Build settings (already in `netlify.toml`):
-   - Build command: `pnpm build`
-   - Publish directory: `dist`
-   - Functions directory: `netlify/functions`
-3. Set `KONTENT_MANAGEMENT_API_KEY` (and optional `KONTENT_ENVIRONMENT_ID`) in Netlify env.
-4. Deploy. Confirm:
-   - Site loads over HTTPS
-   - `GET /api/kontent?environmentId=…&path=languages` returns JSON (not HTML)
-5. CSP `frame-ancestors https://app.kontent.ai` is set via `netlify.toml` and `public/_headers`.
+```bash
+ngrok http 8888   # use the port from netlify:dev
+```
 
-[![Deploy to Netlify](https://www.netlify.com/img/deploy/button.svg)](https://app.netlify.com/start/deploy?repository=https://github.com/kontent-ai/custom-app-starter-react.git)
+Copy the **HTTPS** forwarding URL (e.g. `https://abc123.ngrok-free.app`).  
+Update Kontent whenever the tunnel URL changes.
 
-> After forking/pushing this project, point the Deploy button at **your** repo URL.
+### 4. Register that URL in Kontent
 
-## Register in Kontent.ai
+Environment settings → **Custom apps** → create/edit **Compare languages**:
+
+- **Source / hosted code URL:** the ngrok HTTPS URL (no trailing path required for the Vite/Netlify root)
+- **Display mode:** **Dialog**
+- **Roles:** only demo roles (MAPI key is not user-scoped)
+- Optional JSON `appConfig` (below)
+
+Open a content item in the item editor, then launch the app.
+
+## Register in Kontent.ai (details)
 
 1. Open the target environment → **Environment settings** → **Custom apps**.
 2. **Create** a custom app:
    - **Name:** Compare languages
-   - **Source URL:** your Netlify (or ngrok) HTTPS URL
+   - **Source URL:** your **ngrok HTTPS URL** (primary) — or a later hosted URL
    - **Display mode:** **Dialog**
    - **Roles:** grant only the roles that should open the demo (remember: MAPI key is not user-scoped)
 3. Optional **JSON parameters** (`appConfig`):
@@ -126,6 +130,15 @@ You can also run `pnpm dev` (Vite HTTPS on port 5173) with a separate `netlify f
 If the app is opened outside the item editor (or without a content item), it shows:
 
 > Open a content item, then launch Compare languages.
+
+## Optional later: Netlify hosting
+
+Not required for the demo. When you want a stable URL instead of ngrok:
+
+1. Connect this GitHub repo to Netlify (`netlify.toml` already sets build `pnpm build`, publish `dist`, functions `netlify/functions`).
+2. Set `KONTENT_MANAGEMENT_API_KEY` (and optional `KONTENT_ENVIRONMENT_ID`) in Netlify env.
+3. Point the Kontent custom app Source URL at the Netlify HTTPS site.
+4. CSP `frame-ancestors https://app.kontent.ai` is set via `netlify.toml` and `public/_headers`.
 
 ## Demo script (Karma Health sales)
 
