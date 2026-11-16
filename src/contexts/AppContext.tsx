@@ -17,12 +17,6 @@ type PageTypeToContext = {
 
 type NarrowedContext<T extends readonly PageType[]> = PageTypeToContext[T[number]];
 
-const pageTypeDisplayNames: Record<PageType, string> = {
-  itemEditor: "Item Editor",
-  contentInventory: "Content Inventory",
-  other: "Other pages",
-};
-
 interface UseCustomAppContextResult {
   readonly context: CustomAppContext | null;
   readonly isLoading: boolean;

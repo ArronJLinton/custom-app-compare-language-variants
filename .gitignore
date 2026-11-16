@@ -25,6 +25,9 @@ dist-ssr
 .env.test.local
 .env.production.local
 
+# Netlify
+.netlify
+
 # Testing
 coverage
 *.lcov
