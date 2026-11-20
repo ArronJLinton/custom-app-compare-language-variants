@@ -2,12 +2,13 @@ import type { Handler, HandlerEvent } from "@netlify/functions";
 
 const MAPI_BASE = "https://manage.kontent.ai/v2/projects";
 
-const UUID =
-  "[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}";
+const UUID = "[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}";
 const CODE_OR_ID = `(?:${UUID}|[A-Za-z0-9_-]+)`;
 
 const ALLOWED_PATHS: RegExp[] = [
   /^languages$/,
+  /^types$/,
+  /^items$/,
   new RegExp(`^items/${CODE_OR_ID}$`),
   new RegExp(`^items/${CODE_OR_ID}/variants$`),
   new RegExp(`^items/${CODE_OR_ID}/variants/${CODE_OR_ID}$`),
@@ -31,10 +32,7 @@ const isAllowedPath = (path: string): boolean =>
   ALLOWED_PATHS.some((pattern) => pattern.test(path));
 
 const normalizePath = (raw: string): string =>
-  raw
-    .replace(/^\/+/, "")
-    .replace(/\/+$/, "")
-    .split("?")[0] ?? "";
+  raw.replace(/^\/+/, "").replace(/\/+$/, "").split("?")[0] ?? "";
 
 export const handler: Handler = async (event: HandlerEvent) => {
   if (event.httpMethod === "OPTIONS") {
@@ -105,8 +103,7 @@ export const handler: Handler = async (event: HandlerEvent) => {
     Accept: "application/json",
   };
 
-  const continuation =
-    event.headers["x-continuation"] ?? event.headers["X-Continuation"];
+  const continuation = event.headers["x-continuation"] ?? event.headers["X-Continuation"];
   if (continuation) {
     headers["X-Continuation"] = continuation;
   }
@@ -134,8 +131,7 @@ export const handler: Handler = async (event: HandlerEvent) => {
       body: text,
     };
   } catch (error) {
-    const message =
-      error instanceof Error ? error.message : "Upstream request failed";
+    const message = error instanceof Error ? error.message : "Upstream request failed";
     return json(502, { message, status: 502 });
   }
 };

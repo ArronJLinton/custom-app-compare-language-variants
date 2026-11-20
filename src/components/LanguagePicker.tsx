@@ -1,66 +1,52 @@
-import type { Language } from "../types";
+import type { Language } from "../types.ts";
 
 interface LanguagePickerProps {
-  readonly leftLanguageId: string;
-  readonly rightLanguageId: string | null;
-  readonly languages: Language[];
-  readonly onRightChange: (languageId: string) => void;
-  readonly onSwap: () => void;
+  readonly baselineLanguageId: string | null;
+  readonly compareLanguageId: string | null;
+  readonly languages: readonly Language[];
+  readonly onCompareChange: (languageId: string) => void;
   readonly showDifferencesOnly: boolean;
   readonly onToggleDifferencesOnly: (value: boolean) => void;
 }
 
 export const LanguagePicker = ({
-  leftLanguageId,
-  rightLanguageId,
+  baselineLanguageId,
+  compareLanguageId,
   languages,
-  onRightChange,
-  onSwap,
+  onCompareChange,
   showDifferencesOnly,
   onToggleDifferencesOnly,
 }: LanguagePickerProps) => {
-  const left = languages.find((language) => language.id === leftLanguageId);
-  const rightOptions = languages.filter(
-    (language) => language.id !== leftLanguageId,
-  );
+  const baseline = languages.find((language) => language.id === baselineLanguageId);
+  const options = languages.filter((language) => language.id !== baselineLanguageId);
 
   return (
     <div className="language-picker">
       <div className="language-picker__side">
-        <span className="language-picker__label">Left</span>
-        <div className="language-picker__value" title={left?.id}>
-          {left?.name ?? leftLanguageId}
-          {left?.codename ? (
-            <span className="language-picker__code">{left.codename}</span>
+        <span className="language-picker__label">Default language</span>
+        <div className="language-picker__value" title={baseline?.id}>
+          {baseline?.name ?? "No default language"}
+          {baseline?.codename && baseline.codename !== "default" ? (
+            <span className="language-picker__code">{baseline.codename}</span>
           ) : null}
         </div>
       </div>
 
-      <button
-        type="button"
-        className="btn btn--secondary language-picker__swap"
-        onClick={onSwap}
-        disabled={!rightLanguageId}
-        title="Swap languages"
-      >
-        Swap
-      </button>
-
       <div className="language-picker__side">
-        <label className="language-picker__label" htmlFor="compare-language">
-          Right (compare)
+        <label className="language-picker__label" htmlFor="compare-variant">
+          Compare variant
         </label>
         <select
-          id="compare-language"
+          id="compare-variant"
           className="language-picker__select"
-          value={rightLanguageId ?? ""}
-          onChange={(event) => onRightChange(event.target.value)}
-          disabled={rightOptions.length === 0}
+          value={compareLanguageId ?? ""}
+          onChange={(event) => onCompareChange(event.target.value)}
+          disabled={options.length === 0}
         >
-          {rightOptions.length === 0 ? (
+          {options.length === 0 ? (
             <option value="">No other languages</option>
           ) : (
-            rightOptions.map((language) => (
+            options.map((language) => (
               <option key={language.id} value={language.id}>
                 {language.name} ({language.codename})
               </option>

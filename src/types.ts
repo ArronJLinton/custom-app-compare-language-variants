@@ -12,6 +12,12 @@ export interface Language {
   readonly is_default: boolean;
 }
 
+export interface ContentTypeSummary {
+  readonly id: string;
+  readonly name: string;
+  readonly codename: string;
+}
+
 export interface ContentItem {
   readonly id: string;
   readonly name: string;
@@ -99,7 +105,14 @@ export interface RichTextComponent {
   readonly elements: readonly VariantElement[];
 }
 
-export type DiffStatus = "same" | "different" | "empty-left" | "empty-right" | "empty-both" | "missing-left" | "missing-right";
+export type DiffStatus =
+  | "same"
+  | "different"
+  | "empty-left"
+  | "empty-right"
+  | "empty-both"
+  | "missing-left"
+  | "missing-right";
 
 export interface CompareRow {
   readonly elementId: string;

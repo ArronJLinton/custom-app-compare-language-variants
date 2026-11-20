@@ -10,6 +10,9 @@ Built from the [Kontent.ai custom-app-starter-react](https://github.com/kontent-
 
 - Dialog popup sized to ~90% × 90% via `setPopupSize`
 - Live context updates via `observeCustomAppContext` (wrapped by the starter’s `useAppContext`)
+- Content type dropdown, then the content items of that type
+- The environment default language from Localization stays on the left; the next variant opens on the right
+- Compare variant lists the other active languages from the Management API, in Localization order
 - Side-by-side element table in content-type order
 - Badges: Missing variant, Empty in one language (amber), Different (blue); Same rows hide when “Show differences only” is on
 - Variant meta: workflow step id, last modified, publishing state when present
@@ -77,12 +80,15 @@ pnpm netlify:dev
 Note the local port Netlify prints (commonly `8888`).  
 `netlify.toml` already points the function at `netlify/functions` and rewrites `/api/kontent`.
 
-Alternative: `pnpm dev` (Vite HTTPS, often `:5173`) plus a separate `netlify functions:serve` — more moving parts; use only if you need it.
+Alternative: `pnpm dev` (Vite HTTP on `:3000`) plus a separate `netlify functions:serve` — more moving parts; use only if you need it.
 
 ### 3. Tunnel with ngrok
 
+Point ngrok at the plain-HTTP process you started. ngrok provides the HTTPS URL.
+
 ```bash
-ngrok http 8888   # use the port from netlify:dev
+ngrok http 8888   # netlify:dev
+ngrok http 3000   # pnpm dev (Vite)
 ```
 
 Copy the **HTTPS** forwarding URL (e.g. `https://abc123.ngrok-free.app`).  
@@ -97,7 +103,7 @@ Environment settings → **Custom apps** → create/edit **Compare languages**:
 - **Roles:** only demo roles (MAPI key is not user-scoped)
 - Optional JSON `appConfig` (below)
 
-Open a content item in the item editor, then launch the app.
+Open the app, choose a content type, then a content item. Launching from an item editor still selects that item.
 
 ## Register in Kontent.ai (details)
 

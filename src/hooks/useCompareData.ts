@@ -7,9 +7,8 @@ import {
   getLanguages,
   getType,
   KontentApiError,
-} from "../api/kontent";
+} from "../api/kontent.ts";
 import type {
-  AppConfig,
   CompareRow,
   ContentItem,
   ContentItemVariant,
@@ -18,13 +17,16 @@ import type {
   Language,
   TypeElement,
   VariantElement,
-} from "../types";
-import { isElementEmpty, valuesAreEqual } from "../utils/normalize";
+} from "../types.ts";
+import { isElementEmpty, valuesAreEqual } from "../utils/normalize.ts";
+import { pickBaselineLanguage, pickNextVariantLanguageId } from "../utils/variants.ts";
 
 export interface CompareData {
   readonly item: ContentItem;
   readonly type: ContentType;
   readonly languages: Language[];
+  readonly baselineLanguageId: string | null;
+  readonly compareLanguageId: string | null;
   readonly leftVariant: ContentItemVariant | null;
   readonly rightVariant: ContentItemVariant | null;
   readonly rows: CompareRow[];
@@ -35,9 +37,7 @@ export interface CompareData {
 interface UseCompareDataArgs {
   readonly environmentId: string;
   readonly contentItemId: string;
-  readonly leftLanguageId: string;
   readonly rightLanguageId: string | null;
-  readonly appConfig: AppConfig | null;
   readonly refreshKey?: number;
 }
 
@@ -48,9 +48,7 @@ interface UseCompareDataResult {
   readonly reload: () => void;
 }
 
-const elementMap = (
-  variant: ContentItemVariant | null,
-): Map<string, VariantElement> => {
+const elementMap = (variant: ContentItemVariant | null): Map<string, VariantElement> => {
   const map = new Map<string, VariantElement>();
   if (!variant) {
     return map;
@@ -112,13 +110,7 @@ const buildRows = (
       type: element.type,
       left,
       right,
-      status: resolveStatus(
-        left,
-        right,
-        leftMissing,
-        rightMissing,
-        element.options,
-      ),
+      status: resolveStatus(left, right, leftMissing, rightMissing, element.options),
       options: element.options,
     };
   });
@@ -127,16 +119,12 @@ const buildRows = (
 export const useCompareData = ({
   environmentId,
   contentItemId,
-  leftLanguageId,
   rightLanguageId,
-  appConfig,
   refreshKey = 0,
 }: UseCompareDataArgs): UseCompareDataResult => {
   const [data, setData] = useState<CompareData | null>(null);
-  const [isLoading, setIsLoading] = useState(true);
-  const [error, setError] = useState<{ status: number; message: string } | null>(
-    null,
-  );
+  const [isLoading, setIsLoading] = useState(Boolean(contentItemId));
+  const [error, setError] = useState<{ status: number; message: string } | null>(null);
   const [localRefresh, setLocalRefresh] = useState(0);
 
   const reload = useCallback(() => {
@@ -147,7 +135,7 @@ export const useCompareData = ({
     let cancelled = false;
 
     const load = async () => {
-      if (!environmentId || !contentItemId || !leftLanguageId) {
+      if (!environmentId || !contentItemId) {
         setData(null);
         setIsLoading(false);
         return;
@@ -163,18 +151,22 @@ export const useCompareData = ({
           getItemVariants(environmentId, contentItemId),
         ]);
 
-        const allowed = appConfig?.allowedLanguages;
-        const filteredLanguages = languages.filter((language) => {
-          if (!language.is_active) {
-            return false;
-          }
-          if (!allowed || allowed.length === 0) {
-            return true;
-          }
-          return (
-            allowed.includes(language.codename) || allowed.includes(language.id)
-          );
-        });
+        const activeLanguages = languages.filter((language) => language.is_active);
+
+        const visibleIds = new Set(activeLanguages.map((language) => language.id));
+        const visibleVariants = variants.filter((variant) => visibleIds.has(variant.language.id));
+        const baseline = pickBaselineLanguage(activeLanguages);
+        const baselineLanguageId = baseline?.id ?? null;
+        const autoRight = baselineLanguageId
+          ? pickNextVariantLanguageId(visibleVariants, baselineLanguageId)
+          : null;
+        const requestedRight =
+          rightLanguageId &&
+          rightLanguageId !== baselineLanguageId &&
+          visibleIds.has(rightLanguageId)
+            ? rightLanguageId
+            : null;
+        const compareLanguageId = requestedRight ?? autoRight;
 
         const type = await getType(environmentId, item.type.id);
         const elements = await getExpandedTypeElements(environmentId, type);
@@ -183,17 +175,15 @@ export const useCompareData = ({
           variants.map((variant) => [variant.language.id, variant] as const),
         );
 
-        const leftExists = variantByLang.has(leftLanguageId);
-        const rightExists = rightLanguageId
-          ? variantByLang.has(rightLanguageId)
-          : false;
+        const leftExists = baselineLanguageId ? variantByLang.has(baselineLanguageId) : false;
+        const rightExists = compareLanguageId ? variantByLang.has(compareLanguageId) : false;
 
         const [leftVariant, rightVariant] = await Promise.all([
-          leftExists
-            ? getItemVariant(environmentId, contentItemId, leftLanguageId)
+          leftExists && baselineLanguageId
+            ? getItemVariant(environmentId, contentItemId, baselineLanguageId)
             : Promise.resolve(null),
-          rightLanguageId && rightExists
-            ? getItemVariant(environmentId, contentItemId, rightLanguageId)
+          compareLanguageId && rightExists
+            ? getItemVariant(environmentId, contentItemId, compareLanguageId)
             : Promise.resolve(null),
         ]);
 
@@ -201,25 +191,21 @@ export const useCompareData = ({
           return;
         }
 
-        const leftMissing = !leftExists;
-        const rightMissing = Boolean(rightLanguageId) && !rightExists;
+        const leftMissing = Boolean(baselineLanguageId) && !leftExists;
+        const rightMissing = Boolean(compareLanguageId) && !rightExists;
 
         setData({
           item,
           type,
-          languages: filteredLanguages,
+          languages: activeLanguages,
+          baselineLanguageId,
+          compareLanguageId,
           leftVariant,
           rightVariant,
           leftMissing,
           rightMissing,
-          rows: rightLanguageId
-            ? buildRows(
-                elements,
-                leftVariant,
-                rightVariant,
-                leftMissing,
-                rightMissing,
-              )
+          rows: compareLanguageId
+            ? buildRows(elements, leftVariant, rightVariant, leftMissing, rightMissing)
             : [],
         });
       } catch (err) {
@@ -241,20 +227,14 @@ export const useCompareData = ({
       }
     };
 
+    void refreshKey;
+    void localRefresh;
     void load();
 
     return () => {
       cancelled = true;
     };
-  }, [
-    environmentId,
-    contentItemId,
-    leftLanguageId,
-    rightLanguageId,
-    appConfig,
-    refreshKey,
-    localRefresh,
-  ]);
+  }, [environmentId, contentItemId, rightLanguageId, refreshKey, localRefresh]);
 
   return { data, isLoading, error, reload };
 };

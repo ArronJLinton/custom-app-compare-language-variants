@@ -1,15 +1,16 @@
 import { setPopupSize } from "@kontent-ai/custom-app-sdk";
-import { useEffect, useMemo, useState } from "react";
-import { CompareHeader } from "./components/CompareHeader";
-import { ElementRow } from "./components/ElementRow";
-import { EmptyState } from "./components/EmptyState";
-import { ErrorPanel } from "./components/ErrorPanel";
-import { LanguagePicker } from "./components/LanguagePicker";
-import { Skeleton } from "./components/Skeleton";
-import { VariantMeta } from "./components/VariantMeta";
+import { useEffect, useMemo, useRef, useState } from "react";
+import { CompareHeader } from "./components/CompareHeader.tsx";
+import { ContentBrowser } from "./components/ContentBrowser.tsx";
+import { ElementRow } from "./components/ElementRow.tsx";
+import { ErrorPanel } from "./components/ErrorPanel.tsx";
+import { LanguagePicker } from "./components/LanguagePicker.tsx";
+import { Skeleton } from "./components/Skeleton.tsx";
+import { VariantMeta } from "./components/VariantMeta.tsx";
 import { useAppConfig, useAppContext } from "./contexts/AppContext.tsx";
-import { useCompareData } from "./hooks/useCompareData";
-import type { AppConfig, Language } from "./types";
+import { useCompareData } from "./hooks/useCompareData.ts";
+import { useContentCatalog } from "./hooks/useContentCatalog.ts";
+import type { AppConfig } from "./types.ts";
 import "./App.css";
 
 const parseAppConfig = (raw: unknown): AppConfig | null => {
@@ -19,47 +20,20 @@ const parseAppConfig = (raw: unknown): AppConfig | null => {
   return raw as AppConfig;
 };
 
-const pickDefaultRightLanguage = (
-  languages: Language[],
-  leftLanguageId: string,
-  preferredCodename?: string,
-): string | null => {
-  const others = languages.filter((language) => language.id !== leftLanguageId);
-  if (others.length === 0) {
-    return null;
-  }
-
-  if (preferredCodename) {
-    const preferred = others.find(
-      (language) =>
-        language.codename === preferredCodename ||
-        language.id === preferredCodename,
-    );
-    if (preferred) {
-      return preferred.id;
-    }
-  }
-
-  const envDefault = others.find((language) => language.is_default);
-  if (envDefault) {
-    return envDefault.id;
-  }
-
-  return others[0]?.id ?? null;
-};
-
 const App = () => {
   const context = useAppContext();
   const rawConfig = useAppConfig();
   const appConfig = useMemo(() => parseAppConfig(rawConfig), [rawConfig]);
 
+  const catalog = useContentCatalog(context.environmentId);
+  const [selectedTypeId, setSelectedTypeId] = useState<string | null>(null);
+  const [selectedItemId, setSelectedItemId] = useState<string | null>(null);
   const [rightLanguageId, setRightLanguageId] = useState<string | null>(null);
-  const [displayLeftId, setDisplayLeftId] = useState<string | null>(null);
-  const [displayRightId, setDisplayRightId] = useState<string | null>(null);
   const [showDifferencesOnly, setShowDifferencesOnly] = useState(
     () => appConfig?.showDifferencesOnlyByDefault ?? false,
   );
   const [showWordDiff] = useState(true);
+  const appliedContextItem = useRef<boolean>(false);
 
   useEffect(() => {
     void setPopupSize({ unit: "%", value: 90 }, { unit: "%", value: 90 });
@@ -69,160 +43,149 @@ const App = () => {
     setShowDifferencesOnly(appConfig?.showDifferencesOnlyByDefault ?? false);
   }, [appConfig?.showDifferencesOnlyByDefault]);
 
-  const isItemEditor =
-    context.currentPage === "itemEditor" && Boolean(context.contentItemId);
+  const contextItemId = context.currentPage === "itemEditor" ? context.contentItemId : null;
 
-  const contextLanguageId =
-    context.currentPage === "itemEditor" ||
-    context.currentPage === "contentInventory"
-      ? context.languageId
-      : null;
-
-  const contentItemId =
-    context.currentPage === "itemEditor" ? context.contentItemId : null;
-
-  // Reset pairing when the hosted item/language context changes.
   useEffect(() => {
+    if (!context.environmentId) {
+      return;
+    }
+    appliedContextItem.current = false;
+    setSelectedTypeId(null);
+    setSelectedItemId(null);
     setRightLanguageId(null);
-    setDisplayLeftId(contextLanguageId);
-    setDisplayRightId(null);
-  }, [contentItemId, contextLanguageId]);
+  }, [context.environmentId]);
+
+  useEffect(() => {
+    if (appliedContextItem.current || !contextItemId || catalog.items.length === 0) {
+      return;
+    }
+    const match = catalog.items.find((item) => item.id === contextItemId);
+    if (!match) {
+      return;
+    }
+    appliedContextItem.current = true;
+    setSelectedTypeId(match.type.id);
+    setSelectedItemId(match.id);
+    setRightLanguageId(null);
+  }, [catalog.items, contextItemId]);
+
+  const itemsForType = useMemo(
+    () => catalog.items.filter((item) => item.type.id === selectedTypeId),
+    [catalog.items, selectedTypeId],
+  );
 
   const { data, isLoading, error, reload } = useCompareData({
     environmentId: context.environmentId,
-    contentItemId: contentItemId ?? "",
-    leftLanguageId: displayLeftId ?? contextLanguageId ?? "",
-    rightLanguageId: displayRightId ?? rightLanguageId,
-    appConfig,
+    contentItemId: selectedItemId ?? "",
+    rightLanguageId,
   });
 
-  // Choose default compare language once languages are available.
-  useEffect(() => {
-    if (!data || !contextLanguageId || rightLanguageId) {
-      return;
-    }
-    const next = pickDefaultRightLanguage(
-      data.languages,
-      contextLanguageId,
-      appConfig?.defaultCompareLanguage,
-    );
-    setRightLanguageId(next);
-    setDisplayLeftId(contextLanguageId);
-    setDisplayRightId(next);
-  }, [
-    data,
-    rightLanguageId,
-    contextLanguageId,
-    appConfig?.defaultCompareLanguage,
-  ]);
-
-  if (!isItemEditor || !contentItemId || !contextLanguageId) {
-    return <EmptyState />;
-  }
-
-  const leftId = displayLeftId ?? contextLanguageId;
-  const rightId = displayRightId ?? rightLanguageId;
-
-  const handleSwap = () => {
-    if (!rightId) {
-      return;
-    }
-    setDisplayLeftId(rightId);
-    setDisplayRightId(leftId);
+  const handleTypeChange = (typeId: string) => {
+    setSelectedTypeId(typeId || null);
+    setSelectedItemId(null);
+    setRightLanguageId(null);
   };
 
-  const handleRightChange = (languageId: string) => {
-    setRightLanguageId(languageId);
-    setDisplayLeftId(contextLanguageId);
-    setDisplayRightId(languageId);
+  const handleItemSelect = (itemId: string) => {
+    setSelectedItemId(itemId);
+    setRightLanguageId(null);
   };
+
+  const comparison = data && data.item.id === selectedItemId ? data : null;
 
   const visibleRows =
-    data?.rows.filter((row) => {
+    comparison?.rows.filter((row) => {
       if (!showDifferencesOnly) {
         return true;
       }
       return row.status !== "same" && row.status !== "empty-both";
     }) ?? [];
 
-  const leftLang = data?.languages.find((language) => language.id === leftId);
-  const rightLang = data?.languages.find((language) => language.id === (rightId ?? ""));
+  const leftLang = comparison?.languages.find(
+    (language) => language.id === comparison.baselineLanguageId,
+  );
+  const rightLang = comparison?.languages.find(
+    (language) => language.id === (comparison.compareLanguageId ?? ""),
+  );
 
   return (
     <div className="app-shell">
-      {isLoading && !data ? (
+      <div className="brand-block brand-block--pad">
+        <h1 className="app-title">Compare languages</h1>
+        <p className="app-subtitle">Karma Health</p>
+      </div>
+
+      {catalog.error ? (
+        <ErrorPanel
+          status={catalog.error.status}
+          message={catalog.error.message}
+          onRetry={catalog.reload}
+        />
+      ) : (
+        <ContentBrowser
+          types={catalog.types}
+          items={itemsForType}
+          selectedTypeId={selectedTypeId}
+          selectedItemId={selectedItemId}
+          isLoading={catalog.isLoading}
+          onTypeChange={handleTypeChange}
+          onItemSelect={handleItemSelect}
+        />
+      )}
+
+      {selectedItemId && isLoading && !comparison ? <Skeleton /> : null}
+
+      {selectedItemId && error && !comparison ? (
+        <ErrorPanel status={error.status} message={error.message} onRetry={reload} />
+      ) : null}
+
+      {comparison ? (
         <>
-          <div className="brand-block brand-block--pad">
-            <h1 className="app-title">Compare languages</h1>
-            <p className="app-subtitle">Karma Health</p>
-          </div>
-          <Skeleton />
-        </>
-      ) : error && !data ? (
-        <>
-          <div className="brand-block brand-block--pad">
-            <h1 className="app-title">Compare languages</h1>
-            <p className="app-subtitle">Karma Health</p>
-          </div>
-          <ErrorPanel
-            status={error.status}
-            message={error.message}
-            onRetry={reload}
-          />
-        </>
-      ) : data ? (
-        <>
-          <CompareHeader itemName={data.item.name} typeName={data.type.name} />
+          <CompareHeader itemName={comparison.item.name} typeName={comparison.type.name} />
 
           <LanguagePicker
-            leftLanguageId={leftId}
-            rightLanguageId={rightId}
-            languages={data.languages}
-            onRightChange={handleRightChange}
-            onSwap={handleSwap}
+            baselineLanguageId={comparison.baselineLanguageId}
+            compareLanguageId={rightLanguageId ?? comparison.compareLanguageId}
+            languages={comparison.languages}
+            onCompareChange={setRightLanguageId}
             showDifferencesOnly={showDifferencesOnly}
             onToggleDifferencesOnly={setShowDifferencesOnly}
           />
 
-          {!rightId && (
+          {!comparison.compareLanguageId && (
             <div className="banner banner--warning" role="status">
-              No other active language is available to compare. Add another
-              language in the environment (or adjust allowedLanguages).
+              This item has no other variant to compare against {leftLang?.name ?? "the baseline"}.
             </div>
           )}
 
-          {(data.leftMissing || data.rightMissing) && rightId && (
+          {comparison.compareLanguageId && (comparison.leftMissing || comparison.rightMissing) ? (
             <div className="banner banner--warning" role="status">
-              {data.leftMissing && data.rightMissing
+              {comparison.leftMissing && comparison.rightMissing
                 ? "Both selected language variants are missing for this item."
-                : data.leftMissing
-                  ? `Missing variant on the left (${leftLang?.codename ?? leftId}).`
-                  : `Missing variant on the right (${rightLang?.codename ?? rightId}).`}
+                : comparison.leftMissing
+                  ? `Missing variant on the left (${leftLang?.codename ?? comparison.baselineLanguageId}).`
+                  : `Missing variant on the right (${rightLang?.codename ?? comparison.compareLanguageId}).`}
             </div>
-          )}
+          ) : null}
 
           <div className="meta-strip">
             <VariantMeta
               side="left"
               language={leftLang}
-              variant={data.leftVariant}
-              missing={data.leftMissing}
+              variant={comparison.leftVariant}
+              missing={comparison.leftMissing}
             />
             <VariantMeta
               side="right"
               language={rightLang}
-              variant={data.rightVariant}
-              missing={Boolean(rightId) && data.rightMissing}
+              variant={comparison.rightVariant}
+              missing={Boolean(comparison.compareLanguageId) && comparison.rightMissing}
             />
           </div>
 
-          {error && (
-            <ErrorPanel
-              status={error.status}
-              message={error.message}
-              onRetry={reload}
-            />
-          )}
+          {error ? (
+            <ErrorPanel status={error.status} message={error.message} onRetry={reload} />
+          ) : null}
 
           {isLoading ? <Skeleton /> : null}
 
@@ -231,15 +194,15 @@ const App = () => {
               <thead>
                 <tr>
                   <th scope="col">Element</th>
-                  <th scope="col">{leftLang?.name ?? "Left"}</th>
-                  <th scope="col">{rightLang?.name ?? "Right"}</th>
+                  <th scope="col">{leftLang?.name ?? "English"}</th>
+                  <th scope="col">{rightLang?.name ?? "Variant"}</th>
                 </tr>
               </thead>
               <tbody>
-                {!rightId ? (
+                {!comparison.compareLanguageId ? (
                   <tr>
                     <td colSpan={3} className="compare-table__empty">
-                      Select a comparison language to see element differences.
+                      Select a variant to compare against {leftLang?.name ?? "the baseline"}.
                     </td>
                   </tr>
                 ) : visibleRows.length === 0 ? (
@@ -255,8 +218,8 @@ const App = () => {
                     <ElementRow
                       key={row.elementId}
                       row={row}
-                      leftMissing={data.leftMissing}
-                      rightMissing={data.rightMissing}
+                      leftMissing={comparison.leftMissing}
+                      rightMissing={comparison.rightMissing}
                       showWordDiff={showWordDiff}
                     />
                   ))
@@ -265,9 +228,7 @@ const App = () => {
             </table>
           </div>
         </>
-      ) : (
-        <EmptyState message="Unable to load comparison data." />
-      )}
+      ) : null}
     </div>
   );
 };

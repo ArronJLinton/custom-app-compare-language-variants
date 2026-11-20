@@ -3,8 +3,9 @@ import type {
   ContentItemVariant,
   ContentSnippet,
   ContentType,
+  ContentTypeSummary,
   Language,
-} from "../types";
+} from "../types.ts";
 
 export class KontentApiError extends Error {
   readonly status: number;
@@ -77,39 +78,99 @@ async function proxyGet<T>(
   };
 }
 
-interface LanguagesResponse {
+interface ContinuationPage {
+  readonly pagination?: {
+    readonly continuation_token?: string | null;
+  };
+}
+
+interface LanguagesResponse extends ContinuationPage {
   readonly languages: Language[];
+}
+
+interface ContentTypesResponse extends ContinuationPage {
+  readonly types: ContentTypeSummary[];
+}
+
+interface ItemsResponse extends ContinuationPage {
+  readonly items: ContentItem[];
 }
 
 interface ItemsVariantsResponse {
   readonly variants: ContentItemVariant[];
 }
 
+const readContinuation = (
+  headerToken: string | null,
+  body: ContinuationPage,
+): string | undefined => {
+  const token = body.pagination?.continuation_token || headerToken || undefined;
+  return token || undefined;
+};
+
 export async function getLanguages(environmentId: string): Promise<Language[]> {
   const languages: Language[] = [];
   let continuation: string | undefined;
 
   do {
-    const page = await proxyGet<LanguagesResponse>(
-      environmentId,
-      "languages",
-      continuation,
-    );
+    const page = await proxyGet<LanguagesResponse>(environmentId, "languages", continuation);
     languages.push(...page.data.languages);
-    continuation = page.continuation ?? undefined;
+    continuation = readContinuation(page.continuation, page.data);
   } while (continuation);
 
   return languages;
 }
 
-export async function getItem(
-  environmentId: string,
-  itemId: string,
-): Promise<ContentItem> {
-  const { data } = await proxyGet<ContentItem>(
-    environmentId,
-    `items/${itemId}`,
-  );
+export async function getContentTypes(environmentId: string): Promise<ContentTypeSummary[]> {
+  const types: ContentTypeSummary[] = [];
+  let continuation: string | undefined;
+  const seen = new Set<string>();
+
+  do {
+    if (continuation) {
+      if (seen.has(continuation)) {
+        break;
+      }
+      seen.add(continuation);
+    }
+
+    const page = await proxyGet<ContentTypesResponse>(environmentId, "types", continuation);
+    types.push(
+      ...page.data.types.map((type) => ({
+        id: type.id,
+        name: type.name,
+        codename: type.codename,
+      })),
+    );
+    continuation = readContinuation(page.continuation, page.data);
+  } while (continuation);
+
+  return types.sort((left, right) => left.name.localeCompare(right.name));
+}
+
+export async function getItems(environmentId: string): Promise<ContentItem[]> {
+  const items: ContentItem[] = [];
+  let continuation: string | undefined;
+  const seen = new Set<string>();
+
+  do {
+    if (continuation) {
+      if (seen.has(continuation)) {
+        break;
+      }
+      seen.add(continuation);
+    }
+
+    const page = await proxyGet<ItemsResponse>(environmentId, "items", continuation);
+    items.push(...page.data.items);
+    continuation = readContinuation(page.continuation, page.data);
+  } while (continuation);
+
+  return items.sort((left, right) => left.name.localeCompare(right.name));
+}
+
+export async function getItem(environmentId: string, itemId: string): Promise<ContentItem> {
+  const { data } = await proxyGet<ContentItem>(environmentId, `items/${itemId}`);
   return data;
 }
 
@@ -117,11 +178,14 @@ export async function getItemVariants(
   environmentId: string,
   itemId: string,
 ): Promise<ContentItemVariant[]> {
-  const { data } = await proxyGet<ItemsVariantsResponse>(
+  const { data } = await proxyGet<ItemsVariantsResponse | readonly ContentItemVariant[]>(
     environmentId,
     `items/${itemId}/variants`,
   );
-  return data.variants;
+  if (Array.isArray(data)) {
+    return [...data];
+  }
+  return [...data.variants];
 }
 
 export async function getItemVariant(
@@ -136,14 +200,8 @@ export async function getItemVariant(
   return data;
 }
 
-export async function getType(
-  environmentId: string,
-  typeId: string,
-): Promise<ContentType> {
-  const { data } = await proxyGet<ContentType>(
-    environmentId,
-    `types/${typeId}`,
-  );
+export async function getType(environmentId: string, typeId: string): Promise<ContentType> {
+  const { data } = await proxyGet<ContentType>(environmentId, `types/${typeId}`);
   return data;
 }
 
@@ -151,10 +209,7 @@ export async function getSnippet(
   environmentId: string,
   snippetId: string,
 ): Promise<ContentSnippet> {
-  const { data } = await proxyGet<ContentSnippet>(
-    environmentId,
-    `snippets/${snippetId}`,
-  );
+  const { data } = await proxyGet<ContentSnippet>(environmentId, `snippets/${snippetId}`);
   return data;
 }
 
